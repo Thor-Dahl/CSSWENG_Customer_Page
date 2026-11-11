@@ -1,0 +1,15 @@
+{
+  "name": "relay-customer-ui",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Standalone HTML/Tailwind/JavaScript customer management dashboard",
+  "scripts": {
+    "dev": "tailwindcss -i ./css/input.css -o ./css/output.css --watch",
+    "build": "tailwindcss -i ./css/input.css -o ./css/output.css --minify",
+    "serve": "npx --yes http-server . -p 4173 -c-1"
+  },
+  "devDependencies": {
+    "tailwindcss": "^4.1.0",
+    "@tailwindcss/cli": "^4.1.0"
+  }
+}
