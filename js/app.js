@@ -3,10 +3,32 @@
   'use strict';
 
   const PAGE_SIZE = 7;
-  const STORAGE_KEY = 'laundry-customer-ui-v2';
+  const STORAGE_KEY = 'laundry-customer-ui-v3';
+  const legacyIds = new Map();
+  function resolveCustomerId(id) {
+    if (typeof id === 'number' || /^\d+$/.test(String(id))) return Number(id);
+    if (String(id).startsWith('source-')) return Number(String(id).slice(7));
+    if (String(id).startsWith('sample-')) return 1000 + Number(String(id).slice(7));
+    if (!legacyIds.has(id)) legacyIds.set(id, 10000 + legacyIds.size);
+    return legacyIds.get(id);
+  }
+  function customerRecord(customer) {
+    return { customer_id: customer.id, first_name: customer.firstName, last_name: customer.lastName,
+      contact_number: customer.phone || null, created_at: customer.created_at };
+  }
+  function customerView(record) {
+    return { id: resolveCustomerId(record.customer_id ?? record.id), firstName: record.first_name ?? record.firstName,
+      lastName: record.last_name ?? record.lastName, phone: record.contact_number ?? record.phone ?? '',
+      _version: record._version, created_at: record.created_at || '2026-11-09 08:00', orders: 0, totalSpent: 0, isSample: record.isSample ?? false };
+  }
 
   // Small inline SVG icons eliminate external icon dependencies.
   const ICON_PATHS = {
+    'receipt': '<path d="M6 3h12v18l-3-2-3 2-3-2-3 2V3Z"/><path d="M9 7h6M9 11h6M9 15h3"/>',
+    'download': '<path d="M12 3v12m-5-5 5 5 5-5M4 16v5h16v-5"/>',
+    'package': '<path d="m3 7 9-4 9 4v10l-9 4-9-4V7Zm0 0 9 4 9-4M12 11v10M7 5l9 4"/>',
+    'wallet': '<rect x="3" y="5" width="18" height="15" rx="2"/><path d="M3 8V5l14-3v3m4 6h-6v5h6m-3-3.5h.01"/>',
+    'scale': '<path d="M12 3v17M5 20h14M3 7h18M6 7l-4 8h8L6 7Zm12 0-4 8h8l-4-8Z"/>',
     'panel-left': '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/>',
     'layout-dashboard': '<rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/>',
     'users': '<circle cx="9" cy="7" r="4"/><path d="M2 21v-2a4 4 0 0 1 4-4h6a4 4 0 0 1 4 4v2M16 3.1a4 4 0 0 1 0 7.8M22 21v-2a4 4 0 0 0-3-3.9"/>',
@@ -23,8 +45,6 @@
 
   const state = {
     customers: [],
-    tab: 'All',
-    status: 'All',
     search: '',
     page: 1,
     editingId: null,
@@ -79,9 +99,7 @@
   }
 
   function formatMoney(amount) {
-    return '$' + Number(amount).toLocaleString('en-US', {
-      maximumFractionDigits: 0
-    });
+    return new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' }).format(Number(amount));
   }
 
   function displayName(customer) {
@@ -94,14 +112,16 @@
 
   function loadChanges() {
     const emptyChanges = { added: [], edited: {}, deleted: [] };
+    if(window.LaundryBackend)return {...emptyChanges,added:window.LaundryBackend.data.customers.map(customerView)};
 
     try {
-      const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+      const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || localStorage.getItem('laundry-customer-ui-v2') || '{}');
+      Object.entries(saved.legacy_ids || {}).forEach(([id, value]) => legacyIds.set(id, value));
 
       return {
-        added: Array.isArray(saved.added) ? saved.added : [],
-        edited: saved.edited && typeof saved.edited === 'object' ? saved.edited : {},
-        deleted: Array.isArray(saved.deleted) ? saved.deleted : []
+        added: Array.isArray(saved.added) ? saved.added.map(customerView) : [],
+        edited: Object.fromEntries(Object.entries(saved.edited || {}).map(([id, record]) => [resolveCustomerId(record.customer_id ?? id), customerView(record)])),
+        deleted: Array.isArray(saved.deleted) ? saved.deleted.map(resolveCustomerId) : []
       };
     } catch (error) {
       console.warn('Saved demo data could not be loaded:', error);
@@ -111,15 +131,18 @@
 
   function saveChanges() {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(state.changes));
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ added: state.changes.added.map(customerRecord), edited: Object.fromEntries(Object.entries(state.changes.edited).map(([id, record]) => [id, customerRecord(record)])), deleted: state.changes.deleted, legacy_ids: Object.fromEntries(legacyIds) }));
+      return true;
     } catch (error) {
       console.warn('Demo data could not be saved:', error);
       showToast('Browser storage is unavailable. Changes may not persist.');
+      return false;
     }
   }
 
   function refreshCustomers() {
-    const sampleCustomers = window.LaundryMockData.createMockCustomers();
+    if(window.LaundryBackend)state.changes={added:window.LaundryBackend.data.customers.map(customerView),edited:{},deleted:[]};
+    const sampleCustomers = window.LaundryBackend ? [] : [...(window.LaundryWorkspace?.seedCustomers || []), ...window.LaundryMockData.createMockCustomers()];
     const deletedIds = new Set(state.changes.deleted);
 
     const updatedSamples = sampleCustomers.map((customer) => {
@@ -129,11 +152,19 @@
     state.customers = [
       ...state.changes.added,
       ...updatedSamples
-    ].filter((customer) => !deletedIds.has(customer.id));
+    ].filter((customer) => !deletedIds.has(customer.id)).map((customer) => ({ ...customer }));
+    if (window.LaundryWorkspace) {
+      const orders = window.LaundryWorkspace.getOrders();
+      state.customers.forEach((customer) => {
+        const linked = orders.filter((order) => order.customer_id === customer.id);
+        customer.orders = linked.length;
+        customer.totalSpent = linked.reduce((sum, order) => sum + order.total_amount, 0);
+      });
+    }
   }
 
   function getCustomer(id) {
-    return state.customers.find((customer) => customer.id === id);
+    return state.customers.find((customer) => customer.id === Number(id));
   }
 
   // ---------------------------------------------------------------------------
@@ -144,8 +175,6 @@
     const query = state.search.trim().toLowerCase();
 
     return state.customers.filter((customer) => {
-      const matchesTab = state.tab === 'All' || customer.status === state.tab;
-      const matchesStatus = state.status === 'All' || customer.status === state.status;
 
       const searchableText = [
         customer.firstName,
@@ -154,12 +183,13 @@
         customer.phone
       ].join(' ').toLowerCase();
 
-      return matchesTab && matchesStatus && searchableText.includes(query);
+      return searchableText.includes(query);
     });
   }
 
   function renderCustomerRow(customer) {
     const subtitle = customer.isSample ? 'Sample customer record' : 'Customer record';
+    const services = window.LaundryWorkspace?.customerServices?.(customer.id) || [];
 
     return `
       <tr
@@ -171,15 +201,16 @@
         <td>
           <div class="customer-cell">
             <span class="customer-identity">
-              <strong>${escapeHTML(displayName(customer))}</strong>
+              <strong>${escapeHTML(displayName(customer))}</strong><button class="text-button customer-edit-link" type="button" data-edit-customer="${customer.id}" aria-label="Edit ${escapeHTML(displayName(customer))}">Edit customer</button>
               <small>${escapeHTML(subtitle)}</small>
             </span>
           </div>
         </td>
-        <td>${escapeHTML(customer.phone)}</td>
+        <td>${escapeHTML(customer.phone || 'Not provided')}</td>
         <td class="numeric-cell">${formatNumber(customer.orders)}</td>
+        <td class="customer-services">${escapeHTML(services.join(', ') || 'No orders yet')}</td>
         <td class="numeric-cell">${formatMoney(customer.totalSpent)}</td>
-        <td>${escapeHTML(customer.lastContact)}</td>
+        <td>${escapeHTML(window.LaundryDates.format(customer.created_at, true))}</td>
       </tr>
     `;
   }
@@ -243,6 +274,7 @@
   }
 
   function renderTable() {
+    byId('clearCustomerSearch').classList.toggle('hidden', !state.search);
     const customers = filteredCustomers();
     const totalPages = Math.max(1, Math.ceil(customers.length / PAGE_SIZE));
 
@@ -264,31 +296,20 @@
   }
 
   function renderAll() {
+    const focusedCustomer = document.activeElement?.closest('[data-customer-id]')?.dataset.customerId;
     refreshCustomers();
     renderTable();
-  }
-
-  function setActiveTab(tab) {
-    state.tab = tab;
-    state.page = 1;
-
-    document.querySelectorAll('[data-tab]').forEach((button) => {
-      const active = button.dataset.tab === tab;
-      button.classList.toggle('active', active);
-      button.setAttribute('aria-pressed', String(active));
-    });
-
-    renderTable();
+    if (state.selectedId) renderCustomerOrders();
+    if (focusedCustomer) document.querySelector(`[data-customer-id="${CSS.escape(focusedCustomer)}"]`)?.focus();
   }
 
   function clearFilters() {
     state.search = '';
-    state.status = 'All';
     state.page = 1;
 
     byId('searchInput').value = '';
-    byId('statusFilter').value = 'All';
-    setActiveTab('All');
+
+    renderTable();
   }
 
   // ---------------------------------------------------------------------------
@@ -303,6 +324,7 @@
                     !byId('detailOverlay').classList.contains('hidden');
 
     document.body.classList.toggle('dialog-open', anyOpen);
+    byId('app').inert = anyOpen;
   }
 
   function openForm(customerId = null) {
@@ -312,6 +334,7 @@
     state.editingId = customerId;
     byId('customerForm').reset();
     byId('formError').classList.add('hidden');
+    ['firstName', 'lastName', 'phoneNumber'].forEach((id) => byId(id).removeAttribute('aria-invalid'));
 
     byId('formTitle').textContent = customer ? 'Edit customer' : 'Add customer';
     byId('saveCustomerButton').textContent = customer ? 'Save changes' : 'Save customer';
@@ -319,7 +342,7 @@
     byId('firstName').value = customer?.firstName || '';
     byId('lastName').value = customer?.lastName || '';
     byId('phoneNumber').value = customer?.phone || '';
-    byId('customerStatus').value = customer?.status || 'New';
+
 
     toggleOverlay('detailOverlay', false);
     toggleOverlay('formOverlay', true);
@@ -338,24 +361,45 @@
     error.classList.remove('hidden');
   }
 
-  function saveCustomer(event) {
+  async function saveCustomer(event) {
     event.preventDefault();
+    const before = JSON.parse(JSON.stringify(state.changes));
 
     const firstName = byId('firstName').value.trim();
     const lastName = byId('lastName').value.trim();
     const phone = byId('phoneNumber').value.trim();
-    const status = byId('customerStatus').value;
 
-    if (!firstName || !lastName || !phone) {
-      showFormError('First name, last name, and contact number are required.');
+
+    if (!firstName || !lastName || firstName.length > 30 || lastName.length > 30 || phone.length > 30) {
+      showFormError('Enter first and last names of up to 30 characters. Contact number is optional (up to 30 characters).');
+      const invalid = !firstName || firstName.length > 30 ? 'firstName' : !lastName || lastName.length > 30 ? 'lastName' : 'phoneNumber';
+      byId(invalid).setAttribute('aria-invalid', 'true');
+      byId(invalid).setAttribute('aria-describedby', 'formError');
+      byId(invalid).focus();
       return;
     }
 
+    if(window.LaundryBackend) {
+      try {
+        const existing=state.editingId?getCustomer(state.editingId):null;
+        const record=await window.LaundryPersistence.withBusy(byId('customerForm'),()=>window.LaundryBackend.request(existing?`/api/customers/${existing.id}`:'/api/customers',{method:existing?'PATCH':'POST',body:{first_name:firstName,last_name:lastName,contact_number:phone||null,_version:existing?._version}}));
+        if(!record)return;
+        const data=window.LaundryBackend.data;
+        data.customers=existing?data.customers.map((item)=>item.customer_id===record.customer_id?record:item):[record,...data.customers];
+        state.changes={added:data.customers.map(customerView),edited:{},deleted:[]};
+        closeForm();clearFilters();renderAll();window.LaundryWorkspace.refreshViews();showToast(existing?'Customer updated.':'Customer created.');
+      }catch(error){showFormError(error.message);}
+      return;
+    }
     if (state.editingId) {
       const existing = getCustomer(state.editingId);
       if (!existing) return;
 
-      const updated = { ...existing, firstName, lastName, phone, status };
+      const updated = { ...existing, firstName, lastName, phone };
+      // Persist historical values only; workspace orders are added during refresh.
+      const linkedOrders = window.LaundryWorkspace?.getOrders().filter((order) => order.customer_id === existing.id) || [];
+      updated.orders -= linkedOrders.length;
+      updated.totalSpent = Math.round((updated.totalSpent - linkedOrders.reduce((sum, order) => sum + order.total_amount, 0)) * 100) / 100;
       const addedIndex = state.changes.added.findIndex((item) => item.id === existing.id);
 
       if (addedIndex !== -1) {
@@ -364,7 +408,7 @@
         state.changes.edited[existing.id] = updated;
       }
 
-      saveChanges();
+      if (!saveChanges()) { state.changes = before; showFormError('Customer was not saved. Allow browser storage and try again.'); return; }
       closeForm();
       renderAll();
       showToast('Customer updated successfully.');
@@ -372,19 +416,19 @@
     }
 
     const customer = {
-      id: `local-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      id: Math.max(9999, ...state.customers.map((item) => item.id), ...state.changes.deleted) + 1,
       firstName,
       lastName,
       phone,
-      status,
+
       orders: 0,
       totalSpent: 0,
-      lastContact: 'Just now',
+      created_at: window.LaundryWorkspace.localDate().replace('T', ' '),
       isSample: false
     };
 
     state.changes.added.unshift(customer);
-    saveChanges();
+    if (!saveChanges()) { state.changes = before; showFormError('Customer was not saved. Allow browser storage and try again.'); return; }
     closeForm();
     clearFilters();
     renderAll();
@@ -396,6 +440,7 @@
     if (!customer) return;
 
     state.selectedId = customer.id;
+    state.customerOrderPage = 1;
     state.previousFocus = document.activeElement;
 
     byId('detailName').textContent = displayName(customer);
@@ -404,11 +449,11 @@
       : 'Customer record';
 
     const fields = [
-      ['Phone number', customer.phone],
-      ['Category', customer.status],
+      ['Phone number', customer.phone || 'Not provided'],
+
       ['Orders', formatNumber(customer.orders)],
-      ['Total spent', formatMoney(customer.totalSpent)],
-      ['Last contact', customer.lastContact]
+      ['Order value', formatMoney(customer.totalSpent)],
+      ['Customer since', window.LaundryDates.format(customer.created_at, true)]
     ];
 
     byId('detailFields').innerHTML = fields.map(([label, value]) => {
@@ -420,23 +465,53 @@
       `;
     }).join('');
 
+    renderCustomerOrders();
     toggleOverlay('detailOverlay', true);
     byId('closeDetailButton').focus();
   }
 
   function closeDetails() {
     toggleOverlay('detailOverlay', false);
+    const previousId = state.selectedId;
     state.selectedId = null;
-    state.previousFocus?.focus?.();
+    if (state.previousFocus?.isConnected) state.previousFocus.focus();
+    else document.querySelector(`[data-customer-id="${previousId}"]`)?.focus();
+  }
+
+  function renderCustomerOrders() {
+    const workspace = window.LaundryWorkspace;
+    if (!workspace?.orderTableRows || !state.selectedId) return;
+    const orders = workspace.getOrders().filter((order) => order.customer_id === state.selectedId).sort((a, b) => window.LaundryDates.timestamp(b.order_date) - window.LaundryDates.timestamp(a.order_date));
+    const totalPages = Math.max(1, Math.ceil(orders.length / PAGE_SIZE));
+    state.customerOrderPage = Math.min(state.customerOrderPage || 1, totalPages);
+    const start = (state.customerOrderPage - 1) * PAGE_SIZE;
+    byId('customerOrderHead').innerHTML = workspace.orderTableHead({ balance: true });
+    byId('customerOrderRows').innerHTML = workspace.orderTableRows(orders.slice(start, start + PAGE_SIZE), { balance: true });
+    byId('customerOrdersEmpty').classList.toggle('hidden', orders.length > 0);
+    byId('customerOrdersResults').textContent = `${orders.length ? start + 1 : 0}–${Math.min(start + PAGE_SIZE, orders.length)} of ${orders.length} orders`;
+    byId('customerOrdersPagination').innerHTML = `<button type="button" class="page-button" data-customer-order-page="${state.customerOrderPage - 1}" aria-label="Previous customer orders page" ${state.customerOrderPage === 1 ? 'disabled' : ''}>${icon('chevron-left')}</button><span>Page ${state.customerOrderPage} of ${totalPages}</span><button type="button" class="page-button" data-customer-order-page="${state.customerOrderPage + 1}" aria-label="Next customer orders page" ${state.customerOrderPage === totalPages ? 'disabled' : ''}>${icon('chevron-right')}</button>`;
   }
 
   function deleteSelectedCustomer() {
     const customer = getCustomer(state.selectedId);
     if (!customer) return;
 
-    if (!window.confirm(`Delete ${displayName(customer)} from the demo customer list?`)) {
+    if (window.LaundryWorkspace?.getOrders().some((order) => order.customer_id === customer.id)) {
+      showToast('This customer has orders. Keep their record to preserve order history.');
       return;
     }
+
+    if (window.LaundryWorkspace) {
+      window.LaundryWorkspace.confirmDelete(displayName(customer), () => finishDeleteCustomer(customer));
+      return;
+    }
+  }
+
+  async function finishDeleteCustomer(customer) {
+    if(window.LaundryBackend) {
+      try {await window.LaundryBackend.request(`/api/customers/${customer.id}`,{method:'DELETE',body:{_version:customer._version}});window.LaundryBackend.data.customers=window.LaundryBackend.data.customers.filter((record)=>record.customer_id!==customer.id);state.changes.added=window.LaundryBackend.data.customers.map(customerView);closeDetails();renderAll();window.LaundryWorkspace.refreshViews();showToast('Customer deleted.');}catch(error){showToast(error.message);}return;
+    }
+    const before = JSON.parse(JSON.stringify(state.changes));
 
     const addedIndex = state.changes.added.findIndex((item) => item.id === customer.id);
 
@@ -447,7 +522,7 @@
       delete state.changes.edited[customer.id];
     }
 
-    saveChanges();
+    if (!saveChanges()) { state.changes = before; showToast('Customer was not deleted. Allow browser storage and try again.'); return; }
     closeDetails();
     renderAll();
     showToast('Customer deleted from demo data.');
@@ -469,12 +544,17 @@
   // ---------------------------------------------------------------------------
 
   function navigateTo(hash) {
-    const page = ['#overview', '#customers', '#settings'].includes(hash)
+    if (hash === '#orders') { location.replace('#overview'); return; }
+    const page = ['#overview', '#customers', '#transactions', '#settings'].includes(hash)
       ? hash.slice(1)
       : 'customers';
 
     byId('customerPage').classList.toggle('hidden', page !== 'customers');
-    byId('otherPage').classList.toggle('hidden', page === 'customers');
+    byId('otherPage').classList.toggle('hidden', page !== 'settings');
+    byId('overviewPage').classList.toggle('hidden', page !== 'overview');
+    if (byId('overviewTitle')) byId('overviewTitle').textContent = 'Overview';
+    byId('transactionsPage').classList.toggle('hidden', page !== 'transactions');
+    document.title = `${{overview: 'Overview', customers: 'Customers', transactions: 'Transactions', settings: 'Settings'}[page]} | BubbleWash`;
 
     if (page !== 'customers') {
       byId('otherPageTitle').textContent = page === 'overview' ? 'Overview' : 'Settings';
@@ -493,21 +573,27 @@
   }
 
   function setUpEvents() {
+    byId('customerOrdersPagination').addEventListener('click', (event) => {
+      const button = event.target.closest('[data-customer-order-page]');
+      if (!button || button.disabled) return;
+      state.customerOrderPage = Number(button.dataset.customerOrderPage);
+      renderCustomerOrders();
+      byId('customerOrdersPagination').querySelector('button:not([disabled])')?.focus();
+    });
+    byId('clearCustomerSearch').addEventListener('click', () => {
+      byId('searchInput').value = '';
+      state.search = '';
+      state.page = 1;
+      renderTable();
+      byId('searchInput').focus();
+    });
     byId('searchInput').addEventListener('input', (event) => {
       state.search = event.target.value;
       state.page = 1;
       renderTable();
     });
 
-    document.querySelectorAll('[data-tab]').forEach((button) => {
-      button.addEventListener('click', () => setActiveTab(button.dataset.tab));
-    });
 
-    byId('statusFilter').addEventListener('change', (event) => {
-      state.status = event.target.value;
-      state.page = 1;
-      renderTable();
-    });
 
     byId('clearFiltersButton').addEventListener('click', clearFilters);
 
@@ -520,11 +606,14 @@
     });
 
     byId('customerRows').addEventListener('click', (event) => {
+      const edit = event.target.closest('[data-edit-customer]');
+      if (edit) { openForm(Number(edit.dataset.editCustomer)); return; }
       const row = event.target.closest('[data-customer-id]');
       if (row) openCustomerDetails(row.dataset.customerId);
     });
 
     byId('customerRows').addEventListener('keydown', (event) => {
+      if (event.target.closest('button')) return;
       const row = event.target.closest('[data-customer-id]');
       if (!row || !['Enter', ' '].includes(event.key)) return;
 
@@ -552,6 +641,16 @@
     });
 
     document.addEventListener('keydown', (event) => {
+      if (event.key === 'Tab') {
+        const overlay = document.querySelector('.modal-overlay:not(.hidden)');
+        if (overlay) {
+          const targets = [...overlay.querySelectorAll('button:not([disabled]), input, select, a[href], [tabindex="0"]')].filter((element) => element.getClientRects().length);
+          const first = targets[0];
+          const last = targets[targets.length - 1];
+          if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+          if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+        }
+      }
       if (event.key !== 'Escape') return;
 
       if (!byId('formOverlay').classList.contains('hidden')) {
@@ -581,4 +680,13 @@
   }
 
   initialize();
+  window.LaundryApp = {
+    getCustomers: () => state.customers,
+    getCustomerRecords: () => state.customers.map(customerRecord), resolveCustomerId,
+    refresh: renderAll,
+    icon, escape: escapeHTML, showToast, closeDetails,
+    closeForm,
+    navigateTo
+  };
+  window.LaundryCustomerCombobox.enhanceSearch(byId('searchInput'));
 })();

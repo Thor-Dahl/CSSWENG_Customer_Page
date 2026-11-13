@@ -6,10 +6,23 @@
   "scripts": {
     "dev": "tailwindcss -i ./css/input.css -o ./css/output.css --watch",
     "build": "tailwindcss -i ./css/input.css -o ./css/output.css --minify",
-    "serve": "npx --yes http-server . -p 4173 -c-1"
+    "serve": "npx --yes http-server . -p 4173 -c-1",
+    "start": "node server/start.js",
+    "backend:dev": "node --watch server/start.js",
+    "backend:setup": "node server/start.js --setup",
+    "test:backend": "node --test --test-concurrency=1 server/test/api.test.js"
   },
   "devDependencies": {
-    "tailwindcss": "^4.1.0",
-    "@tailwindcss/cli": "^4.1.0"
+    "@tailwindcss/cli": "^4.1.0",
+    "mongodb-memory-server": "^10.4.3",
+    "supertest": "^7.3.2",
+    "tailwindcss": "^4.1.0"
+  },
+  "dependencies": {
+    "dotenv": "^18.0.10",
+    "express": "^5.3.0",
+    "express-rate-limit": "^8.7.4",
+    "helmet": "^8.3.0",
+    "mongodb": "^6.22.0"
   }
 }

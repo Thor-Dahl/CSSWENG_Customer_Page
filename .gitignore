@@ -1,4 +1,22 @@
 node_modules/
 .env
 .env.*
+!.env.example
 .DS_Store
+.qa-tools/
+.qa/
+premium-audit.json
+
+# Local generated notes and review tooling; not required to run the application.
+/BACKEND-INTEGRATION.md
+/BACKEND-SETUP.md
+/DESIGN.md
+/SCHEMA-ALIGNMENT.md
+/SPEC-REVIEW.md
+/premium-ui.json
+
+# Local runtime logs and test/build reports.
+*.log
+/coverage/
+/test-results/
+/playwright-report/

@@ -3,23 +3,25 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="theme-color" content="#dedcfa">
-  <meta name="description" content="Customer management UI shell for a laundry management system.">
-  <title>Customers | Laundry Management</title>
+  <meta name="theme-color" content="#eaf6ff">
+  <meta name="description" content="BubbleWash laundry workspace for customers, orders, and payment history.">
+  <title>Customers | BubbleWash</title>
 
   <!-- The compiled stylesheet is checked in, so this page works without npm. -->
   <link rel="stylesheet" href="./css/output.css">
-  <script src="./js/mock-data.js" defer></script>
-  <script src="./js/app.js" defer></script>
+  <link rel="stylesheet" href="./css/app.css">
+  <link rel="stylesheet" href="./css/workspace.css">
+  <script src="./js/runtime-config.js" defer></script>
+  <script src="./js/bootstrap.js" defer></script>
 </head>
 <body>
   <div class="app" id="app">
     <!-- SIDEBAR: Only the sections that were not crossed out in the reference. -->
     <aside class="sidebar" aria-label="Primary navigation">
       <div class="sidebar-header">
-        <a class="brand" href="#customers" aria-label="Laundry Management home">
-          <span class="brand-icon" aria-hidden="true">L</span>
-          <span class="brand-name">Company</span>
+        <a class="brand" href="#overview" aria-label="BubbleWash home">
+          <span class="brand-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="3" width="14" height="18" rx="3"/><path d="M5 8h14M8 5.5h.01M11 5.5h.01"/><circle cx="12" cy="14" r="4"/><path d="M8.5 14c2-2 4 2 7 0"/></svg></span>
+          <span class="brand-name">BubbleWash<small>PRO POS <span>· Laundry care</span></small></span>
         </a>
         <button
           class="icon-button sidebar-toggle"
@@ -35,18 +37,22 @@
 
       <nav class="sidebar-nav" aria-label="Sections">
         <p class="nav-section-label">MAIN</p>
-        <a class="nav-link" href="#overview" data-page="overview">
+        <a class="nav-link" href="#overview" data-page="overview" aria-label="Overview" title="Overview">
           <span data-icon="layout-dashboard"></span>
           <span class="nav-text">Overview</span>
         </a>
-        <a class="nav-link active" href="#customers" data-page="customers" aria-current="page">
+        <a class="nav-link active" href="#customers" data-page="customers" aria-current="page" aria-label="Customers" title="Customers">
           <span data-icon="users"></span>
           <span class="nav-text">Customers</span>
+        </a>
+        <a class="nav-link" href="#transactions" data-page="transactions" aria-label="Transactions" title="Transactions">
+          <span data-icon="receipt"></span>
+          <span class="nav-text">Transactions</span>
         </a>
       </nav>
 
       <div class="sidebar-footer">
-        <a class="nav-link" href="#settings" data-page="settings">
+        <a class="nav-link" href="#settings" data-page="settings" aria-label="Settings" title="Settings">
           <span data-icon="settings"></span>
           <span class="nav-text">Settings</span>
         </a>
@@ -54,6 +60,9 @@
     </aside>
 
     <main class="main-content">
+      <div class="workspace-context"><span class="workspace-identity">A fresh start for every load.<span class="workspace-edition">BubbleWash workspace</span></span><span class="demo-caption">Demo workspace</span></div>
+      <section class="workspace-page hidden" id="overviewPage" aria-labelledby="overviewTitle"></section>
+      <section class="workspace-page hidden" id="transactionsPage" aria-labelledby="transactionsTitle"></section>
       <!-- CUSTOMER LIST -->
       <section class="customer-page" id="customerPage" aria-labelledby="customersTitle">
         <header class="page-header">
@@ -62,8 +71,8 @@
             <p>View and manage customer records in one place.</p>
           </div>
 
-          <label class="search-field">
-            <span class="sr-only">Search customers by name or phone number</span>
+          <div class="search-field">
+            <label class="sr-only" for="searchInput">Search customers by name or phone number</label>
             <input
               type="search"
               id="searchInput"
@@ -71,45 +80,30 @@
               autocomplete="off"
             >
             <span data-icon="search" aria-hidden="true"></span>
-          </label>
+            <button class="search-clear hidden" id="clearCustomerSearch" type="button" aria-label="Clear customer search"><span data-icon="x"></span></button>
+          </div>
         </header>
 
         <section class="customer-panel" aria-label="Customer records">
           <div class="toolbar">
-            <div class="filters">
-              <div class="filter-tabs" role="group" aria-label="Customer categories">
-                <button type="button" class="filter-tab active" data-tab="All" aria-pressed="true">All</button>
-                <button type="button" class="filter-tab" data-tab="VIP" aria-pressed="false">VIP</button>
-                <button type="button" class="filter-tab" data-tab="New" aria-pressed="false">New</button>
-              </div>
+<div class="filters"><span class="muted">All customers</span></div>
 
-              <label class="status-select-wrapper">
-                <span class="sr-only">Filter by customer status</span>
-                <select id="statusFilter" class="status-select">
-                  <option value="All">Status: All</option>
-                  <option value="VIP">VIP</option>
-                  <option value="Active">Active</option>
-                  <option value="New">New</option>
-                </select>
-                <span data-icon="chevron-down" aria-hidden="true"></span>
-              </label>
-            </div>
-
-            <button class="primary-button" type="button" id="addCustomerButton">
+            <button class="primary-button signature-action" type="button" id="addCustomerButton">
               <span data-icon="plus" aria-hidden="true"></span>
               Add customer
             </button>
           </div>
 
-          <div class="table-container">
+          <div class="table-container" tabindex="0" role="region" aria-label="Customer records table">
             <table class="customer-table">
               <thead>
                 <tr>
                   <th scope="col">Customer</th>
                   <th scope="col">Phone number</th>
                   <th scope="col">Orders</th>
-                  <th scope="col">Total spent</th>
-                  <th scope="col">Last contact</th>
+                  <th scope="col">Services used</th>
+                  <th scope="col">Order value</th>
+                  <th scope="col">Customer since</th>
                 </tr>
               </thead>
               <tbody id="customerRows">
@@ -166,25 +160,17 @@
         <div class="form-grid">
           <label class="form-field">
             <span>First name <span class="required-mark">*</span></span>
-            <input id="firstName" name="firstName" required maxlength="40" placeholder="e.g. Maria">
+            <input id="firstName" name="firstName" required maxlength="30" placeholder="e.g. Maria">
           </label>
           <label class="form-field">
             <span>Last name <span class="required-mark">*</span></span>
-            <input id="lastName" name="lastName" required maxlength="40" placeholder="e.g. Santos">
+            <input id="lastName" name="lastName" required maxlength="30" placeholder="e.g. Santos">
           </label>
           <label class="form-field full-width">
-            <span>Contact number <span class="required-mark">*</span></span>
-            <input id="phoneNumber" name="phoneNumber" type="tel" required maxlength="30" placeholder="e.g. 0912 345 6789">
+            <span>Contact number <span class="muted">(optional)</span></span>
+            <input id="phoneNumber" name="phoneNumber" type="tel" maxlength="30" placeholder="e.g. 0912 345 6789">
           </label>
-          <label class="form-field full-width">
-            Category
-            <select id="customerStatus" name="customerStatus">
-              <option value="New">New</option>
-              <option value="Active">Active</option>
-              <option value="VIP">VIP</option>
-              <option value="At risk">At risk</option>
-            </select>
-          </label>
+
         </div>
         <p class="form-error hidden" id="formError" role="alert"></p>
         <div class="modal-actions">
@@ -214,6 +200,14 @@
         </div>
       </div>
       <dl class="detail-fields" id="detailFields"></dl>
+      <section class="panel customer-orders" aria-labelledby="customerOrdersTitle">
+        <header class="panel-header"><div class="panel-heading"><h3 id="customerOrdersTitle">Customer orders</h3><p>Order details and services linked to this customer.</p></div></header>
+        <div class="table-container" tabindex="0" role="region" aria-label="Customer orders table">
+          <table class="workspace-table"><thead id="customerOrderHead"></thead><tbody id="customerOrderRows"></tbody></table>
+          <div class="empty-state hidden" id="customerOrdersEmpty" role="status"><strong>No orders yet</strong><p>This customer has no linked orders or service history.</p></div>
+        </div>
+        <footer class="table-footer"><p id="customerOrdersResults" aria-live="polite"></p><nav class="pagination" id="customerOrdersPagination" aria-label="Customer orders pages"></nav></footer>
+      </section>
       <div class="modal-actions space-between">
         <button class="secondary-button danger-button" type="button" id="deleteCustomerButton">
           <span data-icon="trash"></span>
